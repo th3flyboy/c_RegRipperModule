@@ -33,243 +33,240 @@
 #include "Poco/Path.h"
 #include "Poco/RegularExpression.h"
 
-static std::string ripExePath;
-static std::string outPath;
-static std::string errPath;
-static enum RegType
+namespace
 {
-    NTUSER,
-    SYSTEM,
-    SAM,
-    SOFTWARE,
-    ALL
-};
+	const char *MODULE_NAME = "RegRipper";
+	const char *MODULE_DESCRIPTION = "Runs the RegRipper executable against the common set of Windows registry files (i.e., NTUSER, SYSTEM, SAM and SOFTWARE)";
+	const char *MODULE_VERSION = "1.0.1";
 
-/**
- * Parse RegRipper output from a specific output file for matches on the valueName. The 
- * function will return all lines in the file that match the valueName followed byt one 
- * of the potential RegRipper seperators. This may not always find all lines of a plugin
- * writer uses a new seperator.
- * @param regRipperFileName The full path to a regRipper output file.
- * @param valueName The name of the value to search for. Will support regex matches that
- * come before a seperator.
- * @return A vector of matching lines from the file.
- */
-static std::vector<std::string> getRegRipperValues(const std::string& regRipperFileName, const std::string& valueName){
-    Poco::FileInputStream inStream(regRipperFileName);
-    std::vector<std::string> results;
+	static std::string ripExePath;
+	static std::string outPath;
+	static std::string errPath;
 
-    std::string line;
+	static enum RegType
+	{
+		NTUSER,
+		SYSTEM,
+		SAM,
+		SOFTWARE,
+		ALL
+	};
 
-    std::stringstream pattern;
-    pattern << valueName << "[\\s\\->=:]+";
+	/**
+	 * Parse RegRipper output from a specific output file for matches on the valueName. The 
+	 * function will return all lines in the file that match the valueName followed by one 
+	 * of the potential RegRipper separators. This may not always find all lines if a plugin
+	 * writer uses a new separator.
+	 * @param regRipperFileName The full path to a regRipper output file.
+	 * @param valueName The name of the value to search for. Will support regex matches that
+	 * come before a separator.
+	 * @return A vector of matching lines from the file.
+	*/
+	static std::vector<std::string> getRegRipperValues(const std::string& regRipperFileName, const std::string& valueName)
+	{
+		Poco::FileInputStream inStream(regRipperFileName);
+		std::vector<std::string> results;
 
-    Poco::RegularExpression regex(pattern.str(), 0, true);
-    Poco::RegularExpression::Match match;
+		std::string line;
 
-    getline(inStream, line);
+		std::stringstream pattern;
+		pattern << valueName << "[\\s\\->=:]+";
 
-    while(!line.empty()){
-        int nummatches = regex.match(line, match, 0);
-        if(nummatches > 0){
-            results.push_back(line.substr(match.offset + match.length, line.size()));
-        }
-        getline(inStream, line);
-    }
-    inStream.close();
-    return results;
+		Poco::RegularExpression regex(pattern.str(), 0, true);
+		Poco::RegularExpression::Match match;
+
+		while(std::getline(inStream, line))
+		{
+			int nummatches = regex.match(line, match, 0);
+			if(nummatches > 0){
+				results.push_back(line.substr(match.offset + match.length, line.size()));
+			}
+		}
+
+		inStream.close();
+		return results;
+	}
+
+	/**
+	 * Processes the RegRipper output from a SOFTWARE hive and creates blackboard
+	 * entries for operating system details.
+	 * @param pFile A pointer to the SOFTWARE file object.
+	 * @param fileName The name of the RegRipper output file for the SOFTWARE hive.
+	 */
+	static void getSoftwareInfo(TskFile * pFile, const std::string& fileName)
+	{
+		TskBlackboard& blackboard = TskServices::Instance().getBlackboard();
+
+		std::vector<std::string> names = getRegRipperValues(fileName, "ProductName");
+
+		TskBlackboardArtifact osart = pFile->createArtifact(TSK_OS_INFO);
+		for(int i = 0; i < names.size(); i++)
+		{
+			osart.addAttribute(TskBlackboardAttribute(TSK_NAME, MODULE_NAME, "", names[i]));
+		}
+
+		vector<std::string> versions = getRegRipperValues(fileName, "CSDVersion");
+		for(int i = 0; i < versions.size(); i++){
+			osart.addAttribute(TskBlackboardAttribute(TSK_VERSION, MODULE_NAME, "", versions[i]));
+		}
+	}
+
+	/**
+	 * Processes the RegRipper output from a SYSTEM hive and creates blackboard
+	 * entries for operating system details.
+	 * @param pFile A pointer to the SYSTEM file object.
+	 * @param fileName The name of the RegRipper output file for the SYSTEM hive.
+	 */
+	static void getSystemInfo(TskFile * pFile, const std::string& fileName)
+	{
+		std::vector<std::string> names = getRegRipperValues(fileName, "ProcessorArchitecture");
+		TskBlackboardArtifact osart = pFile->createArtifact(TSK_OS_INFO);
+		for(int i = 0; i < names.size(); i++)
+		{
+			if (names[i].compare("AMD64") == 0)
+				osart.addAttribute(TskBlackboardAttribute(TSK_PROCESSOR_ARCHITECTURE, MODULE_NAME, "", "x86-64"));
+			else
+				osart.addAttribute(TskBlackboardAttribute(TSK_PROCESSOR_ARCHITECTURE, MODULE_NAME, "", names[i]));
+		}
+	}
+	
+	static TskModule::Status runRegRipper(RegType type)
+	{
+		std::string funcName(MODULE_NAME + std::string("::runRegRipper"));
+		std::string condition("WHERE files.dir_type = 5 AND UPPER(files.name) = '");
+		std::string fileName;
+		std::string pluginFile;
+
+		switch (type)
+		{
+		case NTUSER:
+			fileName = "NTUSER.DAT";
+			pluginFile = "ntuser";
+			break;
+		case SYSTEM:
+			fileName = "SYSTEM";
+			pluginFile = "system";
+			break;
+		case SOFTWARE:
+			fileName = "SOFTWARE";
+			pluginFile = "software";
+			break;
+		case SAM:
+			fileName = "SAM";
+			pluginFile = "sam";
+			break;
+		default:
+			std::stringstream msg;
+			msg << funcName << " - Unknown type: " << type;
+			LOGERROR(msg.str());
+			return TskModule::FAIL;
+		}
+
+		condition.append(fileName);
+		condition.append("'");
+
+		try 
+		{
+			// Get the file ids matching our condition
+			TskImgDB& imgDB = TskServices::Instance().getImgDB();
+			std::vector<uint64_t> fileIds = imgDB.getFileIds(condition);
+
+			TskFileManager& fileManager = TskServices::Instance().getFileManager();
+
+			// Iterate over the files running RegRipper on each one.
+			for (std::vector<uint64_t>::iterator it = fileIds.begin(); it != fileIds.end(); it++)
+			{
+				Poco::Process::Args cmdArgs;
+				cmdArgs.push_back("-f");
+				cmdArgs.push_back(pluginFile);
+
+				// Create a file object for the id
+				std::auto_ptr<TskFile> pFile(fileManager.getFile(*it));
+
+				// Confirm that we have the right file name since the query can return
+				// files that are similar to the ones we want.
+				if (Poco::icompare(pFile->getName(), fileName) != 0)
+					continue;
+
+				// Save the file content so that we can run RegRipper against it
+				fileManager.saveFile(pFile.get());
+
+				cmdArgs.push_back("-r");
+				cmdArgs.push_back(pFile->getPath());
+
+				// Create the output file if it does not exist.
+				std::stringstream outFilePath;
+				outFilePath << outPath << "\\" << pFile->getName() << "_" 
+					<< pFile->getHash(TskImgDB::MD5) << "_" << pFile->getId() << ".txt";
+				Poco::File outFile(outFilePath.str());
+
+				if (!outFile.exists())
+				{
+					outFile.createFile();
+				}
+
+				std::stringstream msg;
+				msg << funcName << " - Analyzing hive " << pFile->getPath() << L"/" << pFile->getName() << " to " << outFile.path();
+				LOGINFO(msg.str());
+
+				Poco::Pipe outPipe;
+				Poco::Pipe errPipe;
+
+				// Launch RegRipper
+				Poco::ProcessHandle handle = Poco::Process::launch(ripExePath, cmdArgs, NULL, &outPipe, &errPipe);
+
+				// Copy output from Pipe to the output file.
+				Poco::PipeInputStream istr(outPipe);
+				Poco::FileOutputStream ostr(outFile.path(), std::ios::out|std::ios::app);
+				Poco::PipeInputStream errIstr(errPipe);
+				Poco::FileOutputStream errOstr(errPath, std::ios::out|std::ios::app);
+
+				while (istr)
+				{
+					Poco::StreamCopier::copyStream(istr, ostr);
+				}
+
+				while (errIstr)
+				{
+					Poco::StreamCopier::copyStream(errIstr, errOstr);
+				}
+
+				ostr.close();
+
+				// The process should be finished. Check its exit code.
+				int exitCode = Poco::Process::wait(handle);
+
+				// If RegRipper fails on a particular file, we log a warning and continue.
+				if (exitCode != 0)
+				{
+					std::stringstream msg;
+					msg << funcName << " - RegRipper failed on file: " << pFile->getName();
+					LOGWARN(msg.str());            
+				}
+				else
+				{
+					if (type == SOFTWARE)
+					{
+						getSoftwareInfo(pFile.get(), outFilePath.str());
+					}
+					else if (type == SYSTEM)
+					{
+						getSystemInfo(pFile.get(), outFilePath.str());
+					}
+				}
+			}
+		}
+		catch (std::exception& ex)
+		{
+			std::stringstream msg;
+			msg << funcName << " - Error: " << ex.what();
+			LOGERROR(msg.str());
+			return TskModule::FAIL;
+		}
+
+		return TskModule::OK;
+	}
 }
-
-
-
-/**
- * Searches the RegRipper output for operating system information then posts it to the
- * blackboard.
- */
-
-static void getOSInfo(){
-    
-    std::string condition("WHERE files.dir_type = 5 AND UPPER(files.name) = 'SOFTWARE'");
-    TskImgDB& imgDB = TskServices::Instance().getImgDB();
-    
-    TskBlackboard& blackboard = TskServices::Instance().getBlackboard();
-
-    std::vector<uint64_t> fileIds = imgDB.getFileIds(condition);
-
-    TskFileManager& fileManager = TskServices::Instance().getFileManager();
-
-    // Iterate over the files running RegRipper on each one.
-    for (std::vector<uint64_t>::iterator it = fileIds.begin(); it != fileIds.end(); it++)
-    {
-        // Create a file object for the id
-        std::auto_ptr<TskFile> pFile(fileManager.getFile(*it));
-
-        // Create the output file if it does not exist.
-        std::stringstream outFilePath;
-        outFilePath << outPath << "\\" << pFile->getName() << "_" 
-            << pFile->getId() << ".txt";
-        
-        vector<std::string> names = getRegRipperValues(outFilePath.str(), "ProductName");
-        TskBlackboardArtifact osart = pFile->createArtifact(TSK_OS_INFO);
-        for(int i = 0; i < names.size(); i++){
-            osart.addAttribute(TskBlackboardAttribute(TSK_NAME, "RegRipperModule", "", names[i]));
-        }
-        vector<std::string> versions = getRegRipperValues(outFilePath.str(), "CSDVersion");
-        for(int i = 0; i < versions.size(); i++){
-            osart.addAttribute(TskBlackboardAttribute(TSK_VERSION, "RegRipperModule", "", versions[i]));
-        }
-    }
-
-    condition = "WHERE files.dir_type = 5 AND UPPER(files.name) = 'SYSTEM'";
-    
-    fileIds = imgDB.getFileIds(condition);
-
-    // Iterate over the files running RegRipper on each one.
-    for (std::vector<uint64_t>::iterator it = fileIds.begin(); it != fileIds.end(); it++)
-    {
-        // Create a file object for the id
-        std::auto_ptr<TskFile> pFile(fileManager.getFile(*it));
-
-        // Create the output file if it does not exist.
-        std::stringstream outFilePath;
-        outFilePath << outPath << "\\" << pFile->getName() << "_" 
-            << pFile->getId() << ".txt";
-        
-        vector<std::string> names = getRegRipperValues(outFilePath.str(), "ProcessorArchitecture");
-        TskBlackboardArtifact osart = pFile->createArtifact(TSK_OS_INFO);
-        for(int i = 0; i < names.size(); i++){
-            if(names[i].compare("AMD64") == 0)
-                osart.addAttribute(TskBlackboardAttribute(TSK_PROCESSOR_ARCHITECTURE, "RegRipperModule", "", "x86-64"));
-            else
-                osart.addAttribute(TskBlackboardAttribute(TSK_PROCESSOR_ARCHITECTURE, "RegRipperModule", "", names[i]));
-        }
-    }
-}
-
-static TskModule::Status runRegRipper(RegType type)
-{
-    std::string condition("WHERE files.dir_type = 5 AND UPPER(files.name) = '");
-    std::string fileName;
-    std::string pluginFile;
-
-    switch (type)
-    {
-    case NTUSER:
-        fileName = "NTUSER.DAT";
-        pluginFile = "ntuser";
-        break;
-    case SYSTEM:
-        fileName = "SYSTEM";
-        pluginFile = "system";
-        break;
-    case SOFTWARE:
-        fileName = "SOFTWARE";
-        pluginFile = "software";
-        break;
-    case SAM:
-        fileName = "SAM";
-        pluginFile = "sam";
-        break;
-    default:
-        std::wstringstream msg;
-        msg << L"RegRipperModule - Unknown type: " << type;
-        LOGERROR(msg.str());
-        return TskModule::FAIL;
-    }
-
-    condition.append(fileName);
-    condition.append("'");
-
-    try 
-    {
-        // Get the file ids matching our condition
-        TskImgDB& imgDB = TskServices::Instance().getImgDB();
-        std::vector<uint64_t> fileIds = imgDB.getFileIds(condition);
-
-        TskFileManager& fileManager = TskServices::Instance().getFileManager();
-
-        // Iterate over the files running RegRipper on each one.
-        for (std::vector<uint64_t>::iterator it = fileIds.begin(); it != fileIds.end(); it++)
-        {
-            Poco::Process::Args cmdArgs;
-            cmdArgs.push_back("-f");
-            cmdArgs.push_back(pluginFile);
-
-            // Create a file object for the id
-            std::auto_ptr<TskFile> pFile(fileManager.getFile(*it));
-
-            // Confirm that we have the right file name since the query can return
-            // files that are similar to the ones we want.
-            if (Poco::icompare(pFile->getName(), fileName) != 0)
-                continue;
-
-            // Save the file content so that we can run RegRipper against it
-            fileManager.saveFile(pFile.get());
-
-            cmdArgs.push_back("-r");
-            cmdArgs.push_back(pFile->getPath());
-
-            // Create the output file if it does not exist.
-            std::stringstream outFilePath;
-            outFilePath << outPath << "\\" << pFile->getName() << "_" 
-                << pFile->getId() << ".txt";
-            Poco::File outFile(outFilePath.str());
-
-            if (!outFile.exists())
-            {
-                outFile.createFile();
-            }
-
-            std::wstringstream msg;
-            msg << L"RegRipperModule - Analyzing hive " << pFile->getPath().c_str() << L"/" << pFile->getName().c_str() << " to " << outFile.path().c_str();
-            LOGINFO(msg.str());
-
-            Poco::Pipe outPipe;
-            Poco::Pipe errPipe;
-
-            // Launch RegRipper
-            Poco::ProcessHandle handle = Poco::Process::launch(ripExePath, cmdArgs, NULL, &outPipe, &errPipe);
-
-            // Copy output from Pipe to the output file.
-            Poco::PipeInputStream istr(outPipe);
-            Poco::FileOutputStream ostr(outFile.path(), std::ios::out|std::ios::app);
-            Poco::PipeInputStream errIstr(errPipe);
-            Poco::FileOutputStream errOstr(errPath, std::ios::out|std::ios::app);
-
-            while (istr)
-            {
-                Poco::StreamCopier::copyStream(istr, ostr);
-            }
-
-            while (errIstr)
-            {
-                Poco::StreamCopier::copyStream(errIstr, errOstr);
-            }
-            
-            // The process should be finished. Check its exit code.
-            int exitCode = Poco::Process::wait(handle);
-
-            // If RegRipper fails on a particular file, we log a warning and continue.
-            if (exitCode != 0)
-            {
-                std::wstringstream msg;
-                msg << L"RegRipperModule::runRegRipper - RegRipper failed on file: "
-                    << pFile->getName().c_str();
-                LOGWARN(msg.str());            
-            }
-        }
-    }
-    catch (std::exception& ex)
-    {
-        std::wstringstream msg;
-        msg << L"RegRipperModule::runRegRipper - Error: " << ex.what();
-        LOGERROR(msg.str());
-        return TskModule::FAIL;
-    }
-
-    return TskModule::OK;
-}
-
 
 extern "C" 
 {
@@ -280,7 +277,7 @@ extern "C"
      */
     TSK_MODULE_EXPORT const char *name()
     {
-        return "RegRipper";
+        return MODULE_NAME;
     }
 
     /**
@@ -290,7 +287,7 @@ extern "C"
      */
     TSK_MODULE_EXPORT const char *description()
     {
-        return "Runs the RegRipper executable against the common set of Windows registry files (i.e., NTUSER, SYSTEM, SAM and SOFTWARE)";
+        return MODULE_DESCRIPTION;
     }
 
     /**
@@ -300,7 +297,7 @@ extern "C"
      */
     TSK_MODULE_EXPORT const char *version()
     {
-        return "1.0.0";
+        return MODULE_VERSION;
     }
 
     /**
@@ -316,6 +313,7 @@ extern "C"
      */
     TskModule::Status TSK_MODULE_EXPORT initialize(const char* arguments)
     {
+		std::string funcName(MODULE_NAME + std::string("::initialize"));
         std::string args(arguments);
 
         // Split the incoming arguments
@@ -331,7 +329,7 @@ extern "C"
                 ripExePath = (*it).substr(3);
                 if (ripExePath.empty())
                 {
-                    LOGERROR(L"RegRipperModule::initialize - missing argument to -e option.");
+                    LOGERROR(funcName + " - missing argument to -e option.");
                     return TskModule::FAIL;
                 }
                 
@@ -341,7 +339,7 @@ extern "C"
                 outPath = (*it).substr(3);
                 if (outPath.empty())
                 {
-                    LOGERROR(L"RegRipperModule::initialize - missing argument to -o option.");
+                    LOGERROR(funcName + " - missing argument to -o option.");
                     return TskModule::FAIL;
                 }
             }
@@ -359,8 +357,8 @@ extern "C"
         if (ripExePath[ripExePath.size()-1] == '"')
             ripExePath.erase(ripExePath.size()-1, 1);
 
-        std::wstringstream msg;
-        msg << L"RegRipperModule - Using exec: " << ripExePath.c_str();
+        std::stringstream msg;
+        msg << funcName << " - Using exec: " << ripExePath.c_str();
         LOGINFO(msg.str());
 
         if (outPath.empty())
@@ -369,15 +367,15 @@ extern "C"
 
             if (outPath.empty())
             {
-                LOGERROR(L"RegRipperModule::initialize - Empty output path.");
+                LOGERROR(funcName + " - Empty output path.");
                 return TskModule::FAIL;
             }
     
             outPath.append("\\RegRipper");
         }
 
-        std::wstringstream msg1;
-        msg1 << L"RegRipperModule - Using output: " << outPath.c_str();
+        std::stringstream msg1;
+        msg1 << funcName << " - Using output: " << outPath.c_str();
         LOGINFO(msg1.str());
 
         try
@@ -387,8 +385,8 @@ extern "C"
 
             if (!ripExe.exists() || !ripExe.canExecute())
             {
-                std::wstringstream msg;
-                msg << L"RegRipperModule::initialize - " << ripExePath.c_str()
+                std::stringstream msg;
+                msg << funcName << " - " << ripExePath.c_str()
                     << " does not exist or is not executable.";
                 LOGERROR(msg.str());
                 return TskModule::FAIL;
@@ -396,8 +394,8 @@ extern "C"
         }
         catch(std::exception& ex)
         {
-            std::wstringstream msg;
-            msg << L"RegRipperModule::initialize rip.exe location - Unexpected error: "
+            std::stringstream msg;
+            msg << funcName << " - rip.exe location - Unexpected error: "
                 << ex.what();
             LOGERROR(msg.str());
             return TskModule::FAIL;
@@ -411,9 +409,8 @@ extern "C"
         }
         catch(std::exception& ex)
         {
-            std::wstringstream msg;
-            msg << L"RegRipperModule::initialize output location - Unexpected error: "
-                << ex.what();
+            std::stringstream msg;
+            msg << funcName << " - output location - Unexpected error: " << ex.what();
             LOGERROR(msg.str());
             return TskModule::FAIL;
         }
@@ -430,9 +427,8 @@ extern "C"
         }
         catch(std::exception& ex)
         {
-            std::wstringstream msg;
-            msg << L"RegRipperModule::initialize error output location - Unexpected error: "
-                << ex.what();
+            std::stringstream msg;
+            msg << funcName << " - error output location - Unexpected error: " << ex.what();
             LOGERROR(msg.str());
             return TskModule::FAIL;
         }
@@ -446,9 +442,8 @@ extern "C"
         }
         catch(std::exception& ex)
         {
-            std::wstringstream msg;
-            msg << L"RegRipperModule::initialize output location - Unexpected error: "
-                << ex.what();
+            std::stringstream msg;
+            msg << funcName << " - output location - Unexpected error: " << ex.what();
             LOGERROR(msg.str());
             return TskModule::FAIL;
         }
@@ -474,6 +469,7 @@ extern "C"
      */
     TskModule::Status TSK_MODULE_EXPORT report()
     {
+		std::string funcName(MODULE_NAME + std::string("report"));
         TskModule::Status status = TskModule::OK;
 
         try
@@ -486,20 +482,18 @@ extern "C"
                 return TskModule::FAIL;
             if (runRegRipper(SOFTWARE) != TskModule::OK)
                 return TskModule::FAIL;
-
-            getOSInfo();
         }
         catch (TskException& tskEx)
         {
-            std::wstringstream msg;
-            msg << L"RegRipperModule - Caught framework exception: " << tskEx.what();
+            std::stringstream msg;
+            msg << funcName << " - Caught framework exception: " << tskEx.what();
             LOGERROR(msg.str());
             return TskModule::FAIL;
         }
         catch (std::exception& ex)
         {
-            std::wstringstream msg;
-            msg << L"RegRipperModule - Caught exception: " << ex.what();
+            std::stringstream msg;
+            msg << funcName << " - Caught exception: " << ex.what();
             LOGERROR(msg.str());
             return TskModule::FAIL;
         }
@@ -521,7 +515,8 @@ extern "C"
         bool emptyout = false;
         bool emptyerr = false;
 
-        if (fileList.empty()){
+        if (fileList.empty())
+		{
             outDir.remove();
             emptyout = true;
         }
@@ -531,13 +526,15 @@ extern "C"
         Poco::Path errPath(errPath);
         Poco::File errDir(errPath.parent());
 
-        if (errFile.getSize() == 0){
+        if (errFile.getSize() == 0)
+		{
             errFile.remove();
             errDir.remove();
             emptyerr = true;
         }
 
-        if (emptyout && emptyerr){
+        if (emptyout && emptyerr)
+		{
             Poco::File moduleDir(errPath.parent().parent());
             moduleDir.remove();
         }
