@@ -18,6 +18,7 @@
 // System includes
 #include <string>
 #include <sstream>
+#include <memory>
 
 // Framework includes
 #include "TskModuleDev.h"
@@ -43,7 +44,7 @@ namespace
 	static std::string outPath;
 	static std::string errPath;
 
-	static enum RegType
+	enum RegType
 	{
 		NTUSER,
 		SYSTEM,
@@ -95,19 +96,20 @@ namespace
 	 */
 	static void getSoftwareInfo(TskFile * pFile, const std::string& fileName)
 	{
-		TskBlackboard& blackboard = TskServices::Instance().getBlackboard();
-
 		std::vector<std::string> names = getRegRipperValues(fileName, "ProductName");
 
 		TskBlackboardArtifact osart = pFile->createArtifact(TSK_OS_INFO);
-		for(int i = 0; i < names.size(); i++)
+		for(size_t i = 0; i < names.size(); i++)
 		{
-			osart.addAttribute(TskBlackboardAttribute(TSK_NAME, MODULE_NAME, "", names[i]));
+            TskBlackboardAttribute attr(TSK_NAME, MODULE_NAME, "", names[i]);
+            osart.addAttribute(attr);
 		}
 
 		vector<std::string> versions = getRegRipperValues(fileName, "CSDVersion");
-		for(int i = 0; i < versions.size(); i++){
-			osart.addAttribute(TskBlackboardAttribute(TSK_VERSION, MODULE_NAME, "", versions[i]));
+		for(size_t i = 0; i < versions.size(); i++)
+        {
+            TskBlackboardAttribute attr(TSK_VERSION, MODULE_NAME, "", versions[i]);
+			osart.addAttribute(attr);
 		}
 	}
 
@@ -121,12 +123,18 @@ namespace
 	{
 		std::vector<std::string> names = getRegRipperValues(fileName, "ProcessorArchitecture");
 		TskBlackboardArtifact osart = pFile->createArtifact(TSK_OS_INFO);
-		for(int i = 0; i < names.size(); i++)
+		for(size_t i = 0; i < names.size(); i++)
 		{
-			if (names[i].compare("AMD64") == 0)
-				osart.addAttribute(TskBlackboardAttribute(TSK_PROCESSOR_ARCHITECTURE, MODULE_NAME, "", "x86-64"));
+            if (names[i].compare("AMD64") == 0) 
+            {
+                TskBlackboardAttribute attr(TSK_PROCESSOR_ARCHITECTURE, MODULE_NAME, "", "x86-64");
+                osart.addAttribute(attr);
+            }
 			else
-				osart.addAttribute(TskBlackboardAttribute(TSK_PROCESSOR_ARCHITECTURE, MODULE_NAME, "", names[i]));
+            {
+                TskBlackboardAttribute attr(TSK_PROCESSOR_ARCHITECTURE, MODULE_NAME, "", names[i]);
+				osart.addAttribute(attr);
+            }
 		}
 	}
 	
@@ -470,7 +478,6 @@ extern "C"
     TskModule::Status TSK_MODULE_EXPORT report()
     {
 		std::string funcName(MODULE_NAME + std::string("report"));
-        TskModule::Status status = TskModule::OK;
 
         try
         {
