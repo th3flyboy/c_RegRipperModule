@@ -37,11 +37,11 @@ namespace
 {
 	const char *MODULE_NAME = "RegRipper";
 	const char *MODULE_DESCRIPTION = "Runs the RegRipper executable against the common set of Windows registry files (i.e., NTUSER, SYSTEM, SAM and SOFTWARE)";
-	const char *MODULE_VERSION = "1.0.1";
+	const char *MODULE_VERSION = "1.0.2";
 
+	static Poco::Path outPath;
 	static std::string ripExePath;
-	static std::string outPath;
-	static std::string errPath;
+	static std::string pluginPath;
 
 	static enum RegType
 	{
@@ -75,10 +75,11 @@ namespace
 		Poco::RegularExpression regex(pattern.str(), 0, true);
 		Poco::RegularExpression::Match match;
 
-		while(std::getline(inStream, line))
+		while (std::getline(inStream, line))
 		{
 			int nummatches = regex.match(line, match, 0);
-			if(nummatches > 0){
+			if (nummatches > 0)
+			{
 				results.push_back(line.substr(match.offset + match.length, line.size()));
 			}
 		}
@@ -106,7 +107,8 @@ namespace
 		}
 
 		vector<std::string> versions = getRegRipperValues(fileName, "CSDVersion");
-		for(int i = 0; i < versions.size(); i++){
+		for (int i = 0; i < versions.size(); i++)
+		{
 			osart.addAttribute(TskBlackboardAttribute(TSK_VERSION, MODULE_NAME, "", versions[i]));
 		}
 	}
@@ -135,25 +137,57 @@ namespace
 		std::string funcName(MODULE_NAME + std::string("::runRegRipper"));
 		std::string condition("WHERE files.dir_type = 5 AND UPPER(files.name) = '");
 		std::string fileName;
-		std::string pluginFile;
+		Poco::Path pluginFile;
 
 		switch (type)
 		{
 		case NTUSER:
 			fileName = "NTUSER.DAT";
-			pluginFile = "ntuser";
+
+			// Search for the "ntuser-all" or "ntuser" plugin wrappers
+			if (!Poco::Path::find(pluginPath, "ntuser-all", pluginFile) &&
+				!Poco::Path::find(pluginPath, "ntuser", pluginFile))
+			{
+				LOGERROR(funcName + "Failed to find either ntuser-all or ntuser");
+				return TskModule::FAIL;
+			}
+
 			break;
 		case SYSTEM:
 			fileName = "SYSTEM";
-			pluginFile = "system";
+
+			// Search for the "system-all" or "system" plugin wrappers
+			if (!Poco::Path::find(pluginPath, "system-all", pluginFile) &&
+				!Poco::Path::find(pluginPath, "system", pluginFile))
+			{
+				LOGERROR(funcName + "Failed to find either system-all or system");
+				return TskModule::FAIL;
+			}
+
 			break;
 		case SOFTWARE:
 			fileName = "SOFTWARE";
-			pluginFile = "software";
+
+			// Search for the "software-all" or "software" plugin wrappers
+			if (!Poco::Path::find(pluginPath, "software-all", pluginFile) &&
+				!Poco::Path::find(pluginPath, "software", pluginFile))
+			{
+				LOGERROR(funcName + "Failed to find either software-all or software");
+				return TskModule::FAIL;
+			}
+
 			break;
 		case SAM:
 			fileName = "SAM";
-			pluginFile = "sam";
+
+			// Search for the "sam-all" or "sam" plugin wrappers
+			if (!Poco::Path::find(pluginPath, "sam-all", pluginFile) &&
+				!Poco::Path::find(pluginPath, "sam", pluginFile))
+			{
+				LOGERROR(funcName + "Failed to find either sam-all or sam");
+				return TskModule::FAIL;
+			}
+
 			break;
 		default:
 			std::stringstream msg;
@@ -176,29 +210,30 @@ namespace
 			// Iterate over the files running RegRipper on each one.
 			for (std::vector<uint64_t>::iterator it = fileIds.begin(); it != fileIds.end(); it++)
 			{
-				Poco::Process::Args cmdArgs;
-				cmdArgs.push_back("-f");
-				cmdArgs.push_back(pluginFile);
-
 				// Create a file object for the id
 				std::auto_ptr<TskFile> pFile(fileManager.getFile(*it));
 
-				// Confirm that we have the right file name since the query can return
-				// files that are similar to the ones we want.
-				if (Poco::icompare(pFile->getName(), fileName) != 0)
+				// Skip empty files
+				if (pFile->getSize() == 0)
 					continue;
 
 				// Save the file content so that we can run RegRipper against it
 				fileManager.saveFile(pFile.get());
 
+				Poco::Process::Args cmdArgs;
+				cmdArgs.push_back("-f");
+				cmdArgs.push_back(pluginFile.getFileName());
+
 				cmdArgs.push_back("-r");
 				cmdArgs.push_back(pFile->getPath());
 
 				// Create the output file if it does not exist.
-				std::stringstream outFilePath;
-				outFilePath << outPath << "\\" << pFile->getName() << "_" 
-					<< pFile->getHash(TskImgDB::MD5) << "_" << pFile->getId() << ".txt";
-				Poco::File outFile(outFilePath.str());
+				Poco::Path outFilePath = outPath;
+				std::stringstream fileName;
+				fileName << pFile->getName() << "_" << pFile->getHash(TskImgDB::MD5) << "_" << pFile->getId() << ".txt";
+				outFilePath.setFileName(fileName.str());
+
+				Poco::File outFile(outFilePath);
 
 				if (!outFile.exists())
 				{
@@ -206,29 +241,22 @@ namespace
 				}
 
 				std::stringstream msg;
-				msg << funcName << " - Analyzing hive " << pFile->getPath() << L"/" << pFile->getName() << " to " << outFile.path();
+				msg << funcName << " - Analyzing hive " << pFile->getPath() << " to " << outFile.path();
 				LOGINFO(msg.str());
 
 				Poco::Pipe outPipe;
 				Poco::Pipe errPipe;
 
 				// Launch RegRipper
-				Poco::ProcessHandle handle = Poco::Process::launch(ripExePath, cmdArgs, NULL, &outPipe, &errPipe);
+				Poco::ProcessHandle handle = Poco::Process::launch(ripExePath, cmdArgs, NULL, &outPipe, &outPipe);
 
 				// Copy output from Pipe to the output file.
 				Poco::PipeInputStream istr(outPipe);
-				Poco::FileOutputStream ostr(outFile.path(), std::ios::out|std::ios::app);
-				Poco::PipeInputStream errIstr(errPipe);
-				Poco::FileOutputStream errOstr(errPath, std::ios::out|std::ios::app);
+				Poco::FileOutputStream ostr(outFile.path());
 
 				while (istr)
 				{
 					Poco::StreamCopier::copyStream(istr, ostr);
-				}
-
-				while (errIstr)
-				{
-					Poco::StreamCopier::copyStream(errIstr, errOstr);
 				}
 
 				ostr.close();
@@ -247,11 +275,11 @@ namespace
 				{
 					if (type == SOFTWARE)
 					{
-						getSoftwareInfo(pFile.get(), outFilePath.str());
+						getSoftwareInfo(pFile.get(), outFilePath.toString());
 					}
 					else if (type == SYSTEM)
 					{
-						getSystemInfo(pFile.get(), outFilePath.str());
+						getSystemInfo(pFile.get(), outFilePath.toString());
 					}
 				}
 			}
@@ -315,6 +343,7 @@ extern "C"
     {
 		std::string funcName(MODULE_NAME + std::string("::initialize"));
         std::string args(arguments);
+		std::string outPathArg;
 
         // Split the incoming arguments
         Poco::StringTokenizer tokenizer(args, ";");
@@ -336,8 +365,8 @@ extern "C"
             }
             else if ((*it).find("-o") == 0)
             {
-                outPath = (*it).substr(3);
-                if (outPath.empty())
+                outPathArg = (*it).substr(3);
+                if (outPathArg.empty())
                 {
                     LOGERROR(funcName + " - missing argument to -o option.");
                     return TskModule::FAIL;
@@ -361,22 +390,16 @@ extern "C"
         msg << funcName << " - Using exec: " << ripExePath.c_str();
         LOGINFO(msg.str());
 
-        if (outPath.empty())
+        if (outPathArg.empty())
         {
-            outPath = GetSystemProperty(TskSystemProperties::MODULE_OUT_DIR);
+            outPathArg = GetSystemProperty(TskSystemProperties::MODULE_OUT_DIR);
 
-            if (outPath.empty())
+            if (outPathArg.empty())
             {
                 LOGERROR(funcName + " - Empty output path.");
                 return TskModule::FAIL;
             }
-    
-            outPath.append("\\RegRipper");
         }
-
-        std::stringstream msg1;
-        msg1 << funcName << " - Using output: " << outPath.c_str();
-        LOGINFO(msg1.str());
 
         try
         {
@@ -391,6 +414,9 @@ extern "C"
                 LOGERROR(msg.str());
                 return TskModule::FAIL;
             }
+
+			pluginPath = Poco::Path(ripExePath).parent().toString();
+			pluginPath.append("plugins");
         }
         catch(std::exception& ex)
         {
@@ -401,11 +427,17 @@ extern "C"
             return TskModule::FAIL;
         }
 
-        try {
-            // Create an output folder to store results
+		// Create an output folder to store results
+		outPath = Poco::Path::forDirectory(outPathArg);
+		outPath.pushDirectory("RegRipper");
+		outPath.pushDirectory("RegRipperOutput");
+
+		LOGINFO(funcName + " - Using output: " + outPath.toString());
+
+		try {
             Poco::File outDir(outPath);
 
-            outDir.createDirectory();
+			outDir.createDirectories();
         }
         catch(std::exception& ex)
         {
@@ -415,48 +447,6 @@ extern "C"
             return TskModule::FAIL;
         }
         
-        // Create the error output file if it does not exist.
-        std::stringstream errFilePath;
-        errFilePath << outPath << "\\RegRipperError";
-
-        try {
-            // Create an output folder to store results
-            Poco::File errDir(errFilePath.str());
-
-            errDir.createDirectory();
-        }
-        catch(std::exception& ex)
-        {
-            std::stringstream msg;
-            msg << funcName << " - error output location - Unexpected error: " << ex.what();
-            LOGERROR(msg.str());
-            return TskModule::FAIL;
-        }
-
-        outPath.append("\\RegRipperOutput");
-        try {
-            // Create an output folder to store results
-            Poco::File outDir(outPath);
-
-            outDir.createDirectory();
-        }
-        catch(std::exception& ex)
-        {
-            std::stringstream msg;
-            msg << funcName << " - output location - Unexpected error: " << ex.what();
-            LOGERROR(msg.str());
-            return TskModule::FAIL;
-        }
-
-        errFilePath << "\\RegRipperError.txt";
-        Poco::File errFile(errFilePath.str());
-
-        if (!errFile.exists())
-        {
-            errFile.createFile();
-        }
-        errPath = errFilePath.str();
-
         return TskModule::OK;
     }
 
@@ -512,31 +502,10 @@ extern "C"
         std::vector<std::string> fileList;
         Poco::File outDir(outPath);
         outDir.list(fileList);
-        bool emptyout = false;
-        bool emptyerr = false;
 
         if (fileList.empty())
 		{
-            outDir.remove();
-            emptyout = true;
-        }
-
-        // Delete output directory if it contains no files.
-        Poco::File errFile(errPath);
-        Poco::Path errPath(errPath);
-        Poco::File errDir(errPath.parent());
-
-        if (errFile.getSize() == 0)
-		{
-            errFile.remove();
-            errDir.remove();
-            emptyerr = true;
-        }
-
-        if (emptyout && emptyerr)
-		{
-            Poco::File moduleDir(errPath.parent().parent());
-            moduleDir.remove();
+			Poco::File(outPath.parent()).remove(true);
         }
 
         return TskModule::OK;
