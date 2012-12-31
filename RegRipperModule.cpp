@@ -42,6 +42,7 @@ namespace
 
     static Poco::Path outPath;
     static std::string ripExePath;
+    static std::string scriptPath;
     static std::string pluginPath;
 
     enum RegType
@@ -228,6 +229,12 @@ namespace
                 fileManager.saveFile(pFile.get());
 
                 Poco::Process::Args cmdArgs;
+
+                ///@test
+                if (!scriptPath.empty()) {
+                    cmdArgs.push_back(scriptPath);
+                }
+
                 cmdArgs.push_back("-f");
                 cmdArgs.push_back(pluginFile.getFileName());
 
@@ -250,6 +257,9 @@ namespace
                 std::stringstream msg;
                 msg << funcName << " - Analyzing hive " << pFile->getPath() << " to " << outFile.path();
                 LOGINFO(msg.str());
+
+                ///@test
+                LOGINFO("ripExePath="+ripExePath+", pluginFile filename="+pluginFile.getFileName());
 
                 Poco::Pipe outPipe;
                 Poco::Pipe errPipe;
@@ -411,19 +421,41 @@ extern "C"
         try
         {
             // Confirm that the RegRipper executable exists in the given path
-            Poco::File ripExe(ripExePath);
-
-            if (!ripExe.exists() || !ripExe.canExecute())
-            {
-                std::stringstream msg;
-                msg << funcName << " - " << ripExePath.c_str()
-                    << " does not exist or is not executable.";
-                LOGERROR(msg.str());
-                return TskModule::FAIL;
-            }
 
             pluginPath = Poco::Path(ripExePath).parent().toString();
             pluginPath.append("plugins");
+
+            bool usingPerl = false;
+            if(ripExePath.find(".pl") != std::string::npos) {
+                usingPerl = true;
+                ///@todo this is temporary
+                //ripExePath.insert(0,"perl ");
+                scriptPath = ripExePath;
+                ripExePath = "perl";
+                LOGINFO("Using exe path: " + ripExePath);
+            }
+
+            if (!usingPerl) {
+                Poco::File ripExe(ripExePath);
+                if (!ripExe.exists() || ripExe.canExecute())
+                {
+                    std::stringstream msg;
+                    msg << funcName << " - " << ripExePath.c_str()
+                        << " does not exist or is not executable.";
+                    LOGERROR(msg.str());
+                    return TskModule::FAIL;
+                }
+            } else {
+                /*Poco::File ripExe("perl");
+                if (!ripExe.exists())
+                {
+                    std::stringstream msg;
+                    msg << funcName << " - " << ripExePath.c_str()
+                        << " perl interpreter not found.";
+                    LOGERROR(msg.str());
+                    return TskModule::FAIL;
+                }*/
+            }
         }
         catch(std::exception& ex)
         {
