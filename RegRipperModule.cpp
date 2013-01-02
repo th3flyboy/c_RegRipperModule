@@ -42,9 +42,8 @@ namespace
 
     static Poco::Path outPath;
     static std::string ripExePath;
-    static std::string scriptPath;
     static std::string pluginPath;
-
+    static std::vector<std::string> interpArgs;
     enum RegType
     {
         NTUSER,
@@ -53,6 +52,35 @@ namespace
         SOFTWARE,
         ALL
     };
+
+    static bool isExeAndExists(const std::string & exePath)
+    {
+        Poco::File exeFile(exePath);
+        return (exeFile.exists() && exeFile.canExecute());
+    }
+    
+    static const std::string checkExeEnvPath(const std::string & exePath)
+    {
+        ///@todo don't assume linux?
+        std::string envPaths = Poco::Path::expand("$PATH");
+        // Don't wast time checking if env var is unreasonably large
+        if(envpaths.length() < 4096) {
+            Poco::StringTokenizer tokenizer(envPaths, ":");
+            // Try every path found in the PATH env variable.
+            for (std::vector<std::string>::iterator it = tokenizer.begin(); it != tokenizer.end(); ++it) {
+            {
+                std::string newExePath = *it + ripExePath;
+                
+                ///@todo remove test verbosity
+                LOGINFO(funcName + " - newExePath=" + newExePath);
+
+                if (isExeAndExists(newExePath)) {
+                    return newExePath;
+                }
+            }
+        }
+        return std::string();
+    }
 
     /**
      * Parse RegRipper output from a specific output file for matches on the valueName. The 
@@ -230,9 +258,9 @@ namespace
 
                 Poco::Process::Args cmdArgs;
 
-                ///@test
-                if (!scriptPath.empty()) {
-                    cmdArgs.push_back(scriptPath);
+                // Insert interpreter arguments, if any
+                for (std::vector<std::string>::iterator it = interpArgs.begin(); it != interpArgs.end(); ++it) {
+                    cmdArgs.push_back(*it);
                 }
 
                 cmdArgs.push_back("-f");
@@ -258,7 +286,7 @@ namespace
                 msg << funcName << " - Analyzing hive " << pFile->getPath() << " to " << outFile.path();
                 LOGINFO(msg.str());
 
-                ///@test
+                ///@test verbosity
                 LOGINFO("ripExePath="+ripExePath+", pluginFile filename="+pluginFile.getFileName());
 
                 Poco::Pipe outPipe;
@@ -407,8 +435,38 @@ extern "C"
         msg << funcName << " - Using exec: " << ripExePath.c_str();
         LOGINFO(msg.str());
 
+        /* ripExePath Assumptions:
+            - the last token is the regripper exe or script path
+            - any other script arguments are space delimited
+            - it might have quotes around it so check for that
+        */
+        std::string regRipPath = ripExePath;
+        { //anonymous namespace
+            // in case this is a perl script, extract interpreter path and its args
+            Poco::StringTokenizer tokenizer(ripExePath, " ");
+            if (tokenizer.count() > 1) {
+                ripExePath = *tokenizer.begin();              //the interpreter exe path
+                regRipPath = tokenizer[tokenizer.count()-1]; //reg rip script path
+                Poco::StringTokenizer::Iterator it = tokenizer.begin();
+                interpArgs = std::vector<std::string>(++it, tokenizer.end());
+
+                ///@test verbosity
+                std::stringstream msg;
+                msg << funcName << " - TEST: " << "ripExePath=" << ripExePath << ", regRipPath=" << regRipPath;
+                for (std::vector<std::string>::iterator it = interpArgs.begin(); it != interpArgs.end(); ++it) {
+                    msg << ", script arg=" << *it;
+                }
+                LOGINFO(msg.str());
+            }
+        }
+
+        pluginPath = Poco::Path(regRipPath).parent().toString();
+        pluginPath.append("plugins");
+
         if (outPathArg.empty())
         {
+            ///@test verbosity
+            LOGERROR(funcName + " - Empty output path 1");
             outPathArg = GetSystemProperty(TskSystemProperties::MODULE_OUT_DIR);
 
             if (outPathArg.empty())
@@ -421,40 +479,19 @@ extern "C"
         try
         {
             // Confirm that the RegRipper executable exists in the given path
+            if (!isExeAndExists(ripExePath)) {
+                // Try to find it in a dir in the path environment variable
+                std::string newpath = checkExeEnvPath(ripExePath);
 
-            pluginPath = Poco::Path(ripExePath).parent().toString();
-            pluginPath.append("plugins");
-
-            bool usingPerl = false;
-            if(ripExePath.find(".pl") != std::string::npos) {
-                usingPerl = true;
-                ///@todo this is temporary
-                //ripExePath.insert(0,"perl ");
-                scriptPath = ripExePath;
-                ripExePath = "perl";
-                LOGINFO("Using exe path: " + ripExePath);
-            }
-
-            if (!usingPerl) {
-                Poco::File ripExe(ripExePath);
-                if (!ripExe.exists() || ripExe.canExecute())
-                {
+                if (!newpath.empty()){
+                    ripExePath = newpath;
+                } else {
                     std::stringstream msg;
                     msg << funcName << " - " << ripExePath.c_str()
                         << " does not exist or is not executable.";
                     LOGERROR(msg.str());
                     return TskModule::FAIL;
                 }
-            } else {
-                /*Poco::File ripExe("perl");
-                if (!ripExe.exists())
-                {
-                    std::stringstream msg;
-                    msg << funcName << " - " << ripExePath.c_str()
-                        << " perl interpreter not found.";
-                    LOGERROR(msg.str());
-                    return TskModule::FAIL;
-                }*/
             }
         }
         catch(std::exception& ex)
