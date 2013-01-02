@@ -64,15 +64,17 @@ namespace
         ///@todo don't assume linux?
         std::string envPaths = Poco::Path::expand("$PATH");
         // Don't wast time checking if env var is unreasonably large
-        if(envpaths.length() < 4096) {
+        if(envPaths.length() < 4096) {
             Poco::StringTokenizer tokenizer(envPaths, ":");
             // Try every path found in the PATH env variable.
-            for (std::vector<std::string>::iterator it = tokenizer.begin(); it != tokenizer.end(); ++it) {
-            {
-                std::string newExePath = *it + ripExePath;
+            for (Poco::StringTokenizer::Iterator it = tokenizer.begin(); it != tokenizer.end(); ++it) {
+                std::string newExePath = *it + "/" + ripExePath;
                 
                 ///@todo remove test verbosity
-                LOGINFO(funcName + " - newExePath=" + newExePath);
+                std::stringstream msg;
+                msg << "**** - newExePath=";
+                msg << newExePath;
+                LOGINFO(msg.str());
 
                 if (isExeAndExists(newExePath)) {
                     return newExePath;
