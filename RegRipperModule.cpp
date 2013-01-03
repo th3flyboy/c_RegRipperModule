@@ -427,41 +427,53 @@ extern "C"
             ripExePath.append(".\\RegRipper\\rip.exe");
         }
 
-        // strip off quotes if they were passed in via XML
-        if (ripExePath[0] == '"')
-            ripExePath.erase(0, 1);
-        if (ripExePath[ripExePath.size()-1] == '"')
-            ripExePath.erase(ripExePath.size()-1, 1);
+        std::string regRipPath;
 
-        std::stringstream msg;
-        msg << funcName << " - Using exec: " << ripExePath.c_str();
-        LOGINFO(msg.str());
-
-        /* ripExePath Assumptions:
-            - the last token is the regripper exe or script path
-            - any other script arguments are space delimited
-            - it might have quotes around it so check for that
-        */
-        std::string regRipPath = ripExePath;
-        { //anonymous namespace
-            // in case this is a perl script, extract interpreter path and its args
+        // Strip off quotes if they were passed in via XML
+        std::string strippedRipExePath = TskUtilities::stripQuotes(ripExePath);
+        if (strippedRipExePath != ripExePath)
+        {
+            ripExePath = strippedRipExePath;
+        }
+        else
+        {
+            /* If ripExePath itself is not in quotation marks, it might be in 
+               interpreter format (e.g. "perl /foobar/rip.pl").
+               Assumptions:
+                - The last token is the script path
+                - Any other script arguments are space delimited
+                - There are no nested quotes
+            */
             Poco::StringTokenizer tokenizer(ripExePath, " ");
-            if (tokenizer.count() > 1) {
-                ripExePath = *tokenizer.begin();              //the interpreter exe path
-                regRipPath = tokenizer[tokenizer.count()-1]; //reg rip script path
+            if (tokenizer.count() > 1)
+            {
+                ripExePath = *tokenizer.begin();             // The interpreter exe path
+                regRipPath = tokenizer[tokenizer.count()-1]; // RegRipper script path
+
+                // Get interpreter arguments, if any
                 Poco::StringTokenizer::Iterator it = tokenizer.begin();
                 interpArgs = std::vector<std::string>(++it, tokenizer.end());
 
                 ///@test verbosity
                 std::stringstream msg;
                 msg << funcName << " - TEST: " << "ripExePath=" << ripExePath << ", regRipPath=" << regRipPath;
-                for (std::vector<std::string>::iterator it = interpArgs.begin(); it != interpArgs.end(); ++it) {
+                for (std::vector<std::string>::iterator it = interpArgs.begin(); it != interpArgs.end(); ++it)
+                {
                     msg << ", script arg=" << *it;
                 }
                 LOGINFO(msg.str());
             }
         }
 
+        std::stringstream msg;
+        msg << funcName << " - Using exec: " << ripExePath.c_str();
+        LOGINFO(msg.str());
+
+        // Set the RegRipper plugins path
+        if (regRipPath.empty())
+        {
+            regRipPath = ripExePath;
+        }
         pluginPath = Poco::Path(regRipPath).parent().toString();
         pluginPath.append("plugins");
 
