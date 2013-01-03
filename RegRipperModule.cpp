@@ -53,30 +53,41 @@ namespace
         ALL
     };
 
+    /**
+     * Tests file existence and if executable mode is set.
+     * @param  exePath The filename of an executable file.
+     * @return true if the file exists and is executable, otherwise false
+     */
     static bool isExeAndExists(const std::string & exePath)
     {
         Poco::File exeFile(exePath);
         return (exeFile.exists() && exeFile.canExecute());
     }
-    
+
+    /**
+     * Looks for an executable file in the Linux $PATH environment variable.
+     * If found, it is also tested to see if executable mode is set.
+     * If called on Windows it should return an empty string without error.
+     * @param  exePath The filename of an executable file.
+     * @return Path found to the executable if it exists, otherwise an empty string
+     */
     static const std::string checkExeEnvPath(const std::string & exePath)
     {
-        ///@todo don't assume linux?
-        std::string envPaths = Poco::Path::expand("$PATH");
-        // Don't wast time checking if env var is unreasonably large
-        if(envPaths.length() < 4096) {
-            Poco::StringTokenizer tokenizer(envPaths, ":");
-            // Try every path found in the PATH env variable.
-            for (Poco::StringTokenizer::Iterator it = tokenizer.begin(); it != tokenizer.end(); ++it) {
-                std::string newExePath = *it + "/" + ripExePath;
-                
-                ///@todo remove test verbosity
-                std::stringstream msg;
-                msg << "**** - newExePath=";
-                msg << newExePath;
-                LOGINFO(msg.str());
+        static const short int MAX_ENV_LEN = 4096;
 
-                if (isExeAndExists(newExePath)) {
+        std::string envPaths = Poco::Path::expand("$PATH");
+
+        // Don't wast time checking if env var is unreasonably large
+        if(envPaths.length() < MAX_ENV_LEN)
+        {
+            Poco::StringTokenizer tokenizer(envPaths, ":");
+
+            // Try every path found in the PATH env variable.
+            for (Poco::StringTokenizer::Iterator it = tokenizer.begin(); it != tokenizer.end(); ++it)
+            {
+                std::string newExePath = *it + "/" + ripExePath;
+                if (isExeAndExists(newExePath))
+                {
                     return newExePath;
                 }
             }
@@ -93,7 +104,7 @@ namespace
      * @param valueName The name of the value to search for. Will support regex matches that
      * come before a separator.
      * @return A vector of matching lines from the file.
-    */
+     */
     static std::vector<std::string> getRegRipperValues(const std::string& regRipperFileName, const std::string& valueName)
     {
         Poco::FileInputStream inStream(regRipperFileName);
@@ -288,9 +299,6 @@ namespace
                 msg << funcName << " - Analyzing hive " << pFile->getPath() << " to " << outFile.path();
                 LOGINFO(msg.str());
 
-                ///@test verbosity
-                LOGINFO("ripExePath="+ripExePath+", pluginFile filename="+pluginFile.getFileName());
-
                 Poco::Pipe outPipe;
                 Poco::Pipe errPipe;
 
@@ -453,15 +461,6 @@ extern "C"
                 // Get interpreter arguments, if any
                 Poco::StringTokenizer::Iterator it = tokenizer.begin();
                 interpArgs = std::vector<std::string>(++it, tokenizer.end());
-
-                ///@test verbosity
-                std::stringstream msg;
-                msg << funcName << " - TEST: " << "ripExePath=" << ripExePath << ", regRipPath=" << regRipPath;
-                for (std::vector<std::string>::iterator it = interpArgs.begin(); it != interpArgs.end(); ++it)
-                {
-                    msg << ", script arg=" << *it;
-                }
-                LOGINFO(msg.str());
             }
         }
 
@@ -479,8 +478,6 @@ extern "C"
 
         if (outPathArg.empty())
         {
-            ///@test verbosity
-            LOGERROR(funcName + " - Empty output path 1");
             outPathArg = GetSystemProperty(TskSystemProperties::MODULE_OUT_DIR);
 
             if (outPathArg.empty())
