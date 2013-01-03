@@ -71,7 +71,7 @@ namespace
      * @param  exePath The filename of an executable file.
      * @return Path found to the executable if it exists, otherwise an empty string
      */
-    static const std::string checkExeEnvPath(const std::string & exePath)
+    static const std::string checkExeEnvPath(const std::string & exeFilename)
     {
         static const short int MAX_ENV_LEN = 4096;
 
@@ -85,7 +85,7 @@ namespace
             // Try every path found in the PATH env variable.
             for (Poco::StringTokenizer::Iterator it = tokenizer.begin(); it != tokenizer.end(); ++it)
             {
-                std::string newExePath = *it + "/" + ripExePath;
+                std::string newExePath = *it + "/" + exeFilename;
                 if (isExeAndExists(newExePath))
                 {
                     return newExePath;
