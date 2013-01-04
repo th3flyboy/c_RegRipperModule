@@ -78,7 +78,7 @@ namespace
         std::string envPaths = Poco::Path::expand("$PATH");
 
         // Don't wast time checking if env var is unreasonably large
-        if(envPaths.length() < MAX_ENV_LEN)
+        if (envPaths.length() < MAX_ENV_LEN)
         {
             Poco::StringTokenizer tokenizer(envPaths, ":");
 
@@ -489,13 +489,17 @@ extern "C"
         try
         {
             // Confirm that the RegRipper executable exists in the given path
-            if (!isExeAndExists(ripExePath)) {
+            if (!isExeAndExists(ripExePath))
+            {
                 // Try to find it in a dir in the path environment variable
                 std::string newpath = checkExeEnvPath(ripExePath);
 
-                if (!newpath.empty()){
+                if (!newpath.empty())
+                {
                     ripExePath = newpath;
-                } else {
+                }
+                else
+                {
                     std::stringstream msg;
                     msg << funcName << " - " << ripExePath.c_str()
                         << " does not exist or is not executable.";
@@ -520,7 +524,8 @@ extern "C"
 
         LOGINFO(funcName + " - Using output: " + outPath.toString());
 
-        try {
+        try
+        {
             Poco::File outDir(outPath);
             outDir.createDirectories();
         }
