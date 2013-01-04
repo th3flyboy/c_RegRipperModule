@@ -300,7 +300,6 @@ namespace
                 LOGINFO(msg.str());
 
                 Poco::Pipe outPipe;
-                Poco::Pipe errPipe;
 
                 // Launch RegRipper
                 Poco::ProcessHandle handle = Poco::Process::launch(ripExePath, cmdArgs, NULL, &outPipe, &outPipe);
@@ -523,7 +522,6 @@ extern "C"
 
         try {
             Poco::File outDir(outPath);
-
             outDir.createDirectories();
         }
         catch(std::exception& ex)
