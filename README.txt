@@ -51,6 +51,30 @@ included RegRipper plugin (processorarchitecture.pl) in the RegRipper plugins
 directory and update the "system" file in that directory to include
 "processorarchitecture" as it's own line.
 
+
+NON-WINDOWS PLATFORMS
+
+The module executable path argument (`-e`) may point to the RegRipper perl file
+instead of the Windows executable, e.g. `-e /foobar/rrv2.5/rip.pl`.
+
+If necessary, the executable path may include the interpreter command itself,
+e.g. `-e perl /foobar/rrv2.5/rip.pl`.
+
+Requirements:
+
+* Perl is installed.
+* You have downloaded and unzipped:
+    * RegRipper
+    * RegRipper plugins (regripperplugins)
+    * [Parse-Win32Registry](http://search.cpan.org/~jmacfarla/Parse-Win32Registry-0.40/)
+    
+The RegRipper script (rip.pl) may need modification to run on your system.
+RegRipper Plugins must be copied to a `plugins` subdirectory relative to where
+rip.pl exists. Parse-Win32Registry must be properly installed for Perl to find
+it. If that is not possible, a workaround is to provide it as an argument to
+Perl, e.g. `perl -p /foo/Parse-Win32Registry-1.0/lib /foobar/rrv2.5/rip.pl`.
+
+
 RESULTS
 
 The RegRipper output will be located in the location as described in the 
