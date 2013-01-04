@@ -66,7 +66,7 @@ Requirements:
 * You have downloaded and unzipped:
     * RegRipper
     * RegRipper plugins (regripperplugins)
-    * [Parse-Win32Registry](http://search.cpan.org/~jmacfarla/Parse-Win32Registry-0.40/)
+    * Parse-Win32Registry (http://search.cpan.org/~jmacfarla/Parse-Win32Registry-0.40/)
     
 The RegRipper script (rip.pl) may need modification to run on your system.
 RegRipper Plugins must be copied to a `plugins` subdirectory relative to where
