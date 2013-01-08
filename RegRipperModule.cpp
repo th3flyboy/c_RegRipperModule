@@ -67,25 +67,32 @@ namespace
 
     /**
      * Looks for an executable file in the PATH environment variable.
-     * If found, it is also tested to see if executable mode is set.
-     * @param  exePath The filename of an executable file.
+     * If exeFilename is found, it is also tested to see if it's executable.
+     * @param  exeFilename The filename of an executable file.
      * @return Path found to the executable if it exists, otherwise an empty string
      */
     static const std::string checkExeEnvPath(const std::string & exeFilename)
     {
         static const short int MAX_ENV_LEN = 4096;
 
-        std::string envPaths = Poco::Path::expand(Poco::Environment::get("PATH"));
+        std::string envPaths = Poco::Environment::get("PATH");
 
         // Don't wast time checking if env var is unreasonably large
         if (envPaths.length() < MAX_ENV_LEN)
         {
-            Poco::StringTokenizer tokenizer(envPaths, ":");
+#ifdef TSK_WIN32
+            std::string delim(";");
+#else
+            std::string delim(":");
+#endif
+            Poco::StringTokenizer tokenizer(envPaths, delim);
 
             // Try every path found in the PATH env variable.
             for (Poco::StringTokenizer::Iterator it = tokenizer.begin(); it != tokenizer.end(); ++it)
             {
-                std::string newExePath = *it + "/" + exeFilename;
+                Poco::Path p(*it + "/" + exeFilename);  
+                std::string newExePath = p.toString();
+                
                 if (isExeAndExists(newExePath))
                 {
                     return newExePath;
@@ -467,14 +474,6 @@ extern "C"
         msg << funcName << " - Using exec: " << ripExePath.c_str();
         LOGINFO(msg.str());
 
-        // Set the RegRipper plugins path
-        if (regRipPath.empty())
-        {
-            regRipPath = ripExePath;
-        }
-        pluginPath = Poco::Path(regRipPath).parent().toString();
-        pluginPath.append("plugins");
-
         if (outPathArg.empty())
         {
             outPathArg = GetSystemProperty(TskSystemProperties::MODULE_OUT_DIR);
@@ -516,6 +515,14 @@ extern "C"
             LOGERROR(msg.str());
             return TskModule::FAIL;
         }
+
+        // Set the RegRipper plugins path
+        if (regRipPath.empty())
+        {
+            regRipPath = ripExePath;
+        }
+        pluginPath = Poco::Path(regRipPath).parent().toString();
+        pluginPath.append("plugins");
 
         // Create an output folder to store results
         outPath = Poco::Path::forDirectory(outPathArg);
