@@ -33,6 +33,7 @@
 #include "Poco/StreamCopier.h"
 #include "Poco/Path.h"
 #include "Poco/RegularExpression.h"
+#include "Poco/Environment.h"
 
 namespace
 {
@@ -65,9 +66,8 @@ namespace
     }
 
     /**
-     * Looks for an executable file in the Linux $PATH environment variable.
+     * Looks for an executable file in the PATH environment variable.
      * If found, it is also tested to see if executable mode is set.
-     * If called on Windows it should return an empty string without error.
      * @param  exePath The filename of an executable file.
      * @return Path found to the executable if it exists, otherwise an empty string
      */
@@ -75,7 +75,7 @@ namespace
     {
         static const short int MAX_ENV_LEN = 4096;
 
-        std::string envPaths = Poco::Path::expand("$PATH");
+        std::string envPaths = Poco::Path::expand(Poco::Environment::get("PATH"));
 
         // Don't wast time checking if env var is unreasonably large
         if (envPaths.length() < MAX_ENV_LEN)
@@ -511,7 +511,7 @@ extern "C"
         catch(std::exception& ex)
         {
             std::stringstream msg;
-            msg << funcName << " - rip.exe location - Unexpected error: "
+            msg << funcName << " - RegRipper executable location - Unexpected error: "
                 << ex.what();
             LOGERROR(msg.str());
             return TskModule::FAIL;
