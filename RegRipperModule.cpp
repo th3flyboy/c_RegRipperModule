@@ -55,17 +55,6 @@ namespace
     };
 
     /**
-     * Tests file existence and if executable mode is set.
-     * @param  exePath The filename of an executable file.
-     * @return true if the file exists and is executable, otherwise false
-     */
-    static bool isExeAndExists(const std::string & exePath)
-    {
-        Poco::File exeFile(exePath);
-        return (exeFile.exists() && exeFile.canExecute());
-    }
-
-    /**
      * Looks for an executable file in the PATH environment variable.
      * If exeFilename is found, it is also tested to see if it's executable.
      * @param  exeFilename The filename of an executable file.
@@ -77,23 +66,17 @@ namespace
 
         std::string envPaths = Poco::Environment::get("PATH");
 
-        // Don't wast time checking if env var is unreasonably large
+        // Don't waste time checking if env var is unreasonably large
         if (envPaths.length() < MAX_ENV_LEN)
         {
-#ifdef TSK_WIN32
-            std::string delim(";");
-#else
-            std::string delim(":");
-#endif
-            Poco::StringTokenizer tokenizer(envPaths, delim);
-
-            // Try every path found in the PATH env variable.
-            for (Poco::StringTokenizer::Iterator it = tokenizer.begin(); it != tokenizer.end(); ++it)
+            Poco::Path p;
+            if (Poco::Path::find(envPaths, exeFilename, p))
             {
-                Poco::Path p(*it + "/" + exeFilename);  
                 std::string newExePath = p.toString();
-                
-                if (isExeAndExists(newExePath))
+
+                // Check if executable mode is set
+                Poco::File exeFile(newExePath);
+                if (exeFile.canExecute())
                 {
                     return newExePath;
                 }
@@ -488,7 +471,8 @@ extern "C"
         try
         {
             // Confirm that the RegRipper executable exists in the given path
-            if (!isExeAndExists(ripExePath))
+            Poco::File exeFile(ripExePath);
+            if (!(exeFile.exists() && exeFile.canExecute()))
             {
                 // Try to find it in a dir in the path environment variable
                 std::string newpath = checkExeEnvPath(ripExePath);
