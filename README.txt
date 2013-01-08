@@ -38,7 +38,8 @@ list of arguments:
 	-o Path to directory in which to place RegRipper output
 
 If the executable path is omitted the module will look for RegRipper/rip.exe
-in the program directory. 
+in the program directory. If the executable is not found there, it will try
+to find it using the system PATH environment variable.
 
 If the output directory path is omitted, the module will store the results in
 a "RegRipper" directory in the output directory specified in the framework 
