@@ -62,7 +62,7 @@ namespace
      */
     static const std::string checkExeEnvPath(const std::string & exeFilename)
     {
-        static const short int MAX_ENV_LEN = 4096;
+        static const short unsigned int MAX_ENV_LEN = 4096;
 
         std::string envPaths = Poco::Environment::get("PATH");
 
