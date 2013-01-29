@@ -148,7 +148,7 @@ namespace
 			if (!Poco::Path::find(pluginPath, "ntuser-all", pluginFile) &&
 				!Poco::Path::find(pluginPath, "ntuser", pluginFile))
 			{
-				LOGERROR(funcName + "Failed to find either ntuser-all or ntuser");
+				LOGERROR(funcName + " - Failed to find either ntuser-all or ntuser");
 				return TskModule::FAIL;
 			}
 
@@ -160,7 +160,7 @@ namespace
 			if (!Poco::Path::find(pluginPath, "system-all", pluginFile) &&
 				!Poco::Path::find(pluginPath, "system", pluginFile))
 			{
-				LOGERROR(funcName + "Failed to find either system-all or system");
+				LOGERROR(funcName + " - Failed to find either system-all or system");
 				return TskModule::FAIL;
 			}
 
@@ -172,7 +172,7 @@ namespace
 			if (!Poco::Path::find(pluginPath, "software-all", pluginFile) &&
 				!Poco::Path::find(pluginPath, "software", pluginFile))
 			{
-				LOGERROR(funcName + "Failed to find either software-all or software");
+				LOGERROR(funcName + " - Failed to find either software-all or software");
 				return TskModule::FAIL;
 			}
 
@@ -184,7 +184,7 @@ namespace
 			if (!Poco::Path::find(pluginPath, "sam-all", pluginFile) &&
 				!Poco::Path::find(pluginPath, "sam", pluginFile))
 			{
-				LOGERROR(funcName + "Failed to find either sam-all or sam");
+				LOGERROR(funcName + " - Failed to find either sam-all or sam");
 				return TskModule::FAIL;
 			}
 
